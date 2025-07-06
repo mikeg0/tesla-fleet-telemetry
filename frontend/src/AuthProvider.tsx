@@ -1,8 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Amplify, Auth } from 'aws-amplify';
+import { AuthTokens } from './types';
 
 interface AuthContextValue {
   user: any | null | undefined; // undefined while loading
+  tokens: AuthTokens | null;
   signIn: () => void;
   signOut: () => Promise<void>;
 }
@@ -27,23 +29,35 @@ Amplify.configure({
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children
-}) => {
+}: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any | null | undefined>(undefined);
+  const [tokens, setTokens] = useState<AuthTokens | null>(null);
 
   useEffect(() => {
     Auth.currentAuthenticatedUser()
       .then((u) => setUser(u))
       .catch(() => setUser(null));
+
+    // also attempt to grab cached session
+    Auth.currentSession()
+      .then((session: any) => {
+        setTokens({
+          idToken: session.getIdToken().getJwtToken(),
+          accessToken: session.getAccessToken().getJwtToken(),
+          refreshToken: session.getRefreshToken().getToken()
+        });
+      })
+      .catch(() => setTokens(null));
   }, []);
 
-  const signIn = () => {
+  const signIn = (): void => {
     Auth.federatedSignIn(); // hosted UI (includes Tesla IdP configured in Cognito)
   };
 
-  const signOut = () => Auth.signOut().then(() => setUser(null));
+  const signOut = (): Promise<void> => Auth.signOut().then(() => setUser(null));
 
   return (
-    <AuthContext.Provider value={{ user, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, tokens, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );

@@ -43,25 +43,45 @@ npm run dev                          # http://localhost:5173
 
 ---
 
-## 3 – Production Build & Deployment
+## 3 – Production Build & Deployment (S3 + CloudFront)
 
-1. `npm run build` – emits static files in `frontend/dist/`.
-2. **S3**
-   ```bash
-   aws s3 sync dist/ s3://$WEB_BUCKET --delete
-   ```
-3. **CloudFront** – invalidate the cache so users see the latest bundle:
-   ```bash
-   aws cloudfront create-invalidation --distribution-id $CF_ID --paths "/*"
-   ```
+### 3.1 One-time setup
 
-### Using AWS Amplify (optional, zero-ops)
+1. **Create S3 bucket** (static website hosting _disabled_):
+   ```bash
+   WEB_BUCKET=tft-frontend-$AWS_ACCOUNT_ID
+   aws s3 mb s3://$WEB_BUCKET
+   aws s3api put-public-access-block \
+     --bucket $WEB_BUCKET \
+     --public-access-block-configuration 'BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=false,RestrictPublicBuckets=false'
+   ```
+2. **Upload an initial `index.html`** so CloudFront origin check passes:
+   ```bash
+   echo '<!doctype html><title>Deploying…</title>' | aws s3 cp - s3://$WEB_BUCKET/index.html
+   ```
+3. **Create CloudFront distribution**:
+   ```bash
+   CF_ID=$(aws cloudfront create-distribution \
+     --origin-domain-name $WEB_BUCKET.s3.amazonaws.com \
+     --default-root-object index.html \
+     --query 'Distribution.Id' --output text)
+   DNS=$(aws cloudfront get-distribution --id $CF_ID --query 'Distribution.DomainName' --output text)
+   ```
+4. (Optional) **Route 53**: point `app.example.com` → CNAME → `$DNS`.
+
+### 3.2 CI/CD steps (each commit)
 
 ```bash
-amplify init               # follow prompts – choose *Hosting: AWS Amplify*
-amplify add hosting
-amplify publish            # pushes build to S3 & updates CloudFront
+npm ci                      # reproducible install
+npm run build               # outputs dist/
+aws s3 sync dist/ s3://$WEB_BUCKET --delete
+aws cloudfront create-invalidation --distribution-id $CF_ID --paths '/*'
 ```
+
+> Tip: Wrap the above into a GitHub Actions workflow using OIDC-based AWS auth.
+
+### 3.3 Zero-downtime deploys
+* Upload to `dist-<commitSHA>/` first, test with `?v=sha`, then flip CloudFront origin-path.
 
 ---
 
@@ -92,3 +112,20 @@ VITE_API_URL=https://api.example.com      # back-end base URL (optional for prod
 | ⑥ PWA offline support    | Service Worker for cached map tiles & last-known data |
 
 Contributions welcome – open a PR or issue!  When the UI matures, this folder will graduate into a **separate repo** for even faster iterations.
+
+---
+
+## 6 – Expanded Roadmap
+
+| Phase | Feature | Notes |
+|-------|---------|-------|
+| MVP | Tesla OAuth + vehicle list | DONE ✅ |
+| 1 | Real-time telemetry overlay | WebSocket, markers update colour/heading |
+| 2 | Historical playback | Range slider + S3 👉 Athena |
+| 3 | Alerts dashboard | Vehicle errors, push notifications |
+| 4 | Fleet-wide analytics | Charts (energy, mileage), multi-vehicle selection |
+| 5 | Subscription & billing | Stripe or AWS Marketplace integration |
+| 6 | Offline/PWA | ServiceWorker, cached map tiles |
+| 7 | Native mobile wrapper | Capacitor / React Native |
+
+Each phase can ship independently once the back-end surface area exists.
