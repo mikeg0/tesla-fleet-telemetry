@@ -40,6 +40,27 @@ check_env_vars() {
         export DOMAIN_NAME="tesla-fleet.example.com"
     fi
 
+    # Set AWS profile to bonsai
+    export AWS_PROFILE=bonsai
+    print_status "Using AWS profile: $AWS_PROFILE"
+
+    # Set default COGNITO_DOMAIN_PREFIX if not provided
+    if [ -z "$COGNITO_DOMAIN_PREFIX" ]; then
+        export COGNITO_DOMAIN_PREFIX="track-my-tessie"
+        print_status "Using default COGNITO_DOMAIN_PREFIX: $COGNITO_DOMAIN_PREFIX"
+    else
+        print_status "Using COGNITO_DOMAIN_PREFIX: $COGNITO_DOMAIN_PREFIX"
+    fi
+
+    # Verify we're using the correct AWS account
+    CURRENT_ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
+    if [ -z "$CURRENT_ACCOUNT" ]; then
+        print_error "Failed to get AWS account info. Check if 'bonsai' profile is configured correctly."
+        print_error "Run: aws configure list-profiles"
+        exit 1
+    fi
+
+    print_status "Using AWS account: $CURRENT_ACCOUNT"
     print_status "Environment variables validated"
 }
 
@@ -66,8 +87,9 @@ build_application() {
 build_and_push_image() {
     print_status "Building and pushing Docker image..."
 
-    # Get ECR repository URI from CDK outputs
+    # Get ECR repository URI from CDK outputs using bonsai profile
     ECR_URI=$(aws cloudformation describe-stacks \
+        --profile bonsai \
         --stack-name TeslaFleetTelemetryApi \
         --query 'Stacks[0].Outputs[?OutputKey==`EcrRepositoryUri`].OutputValue' \
         --output text 2>/dev/null || echo "")
@@ -77,8 +99,8 @@ build_and_push_image() {
         return
     fi
 
-    # Login to ECR
-    aws ecr get-login-password --region $AWS_DEFAULT_REGION | \
+    # Login to ECR using bonsai profile
+    aws ecr get-login-password --profile bonsai --region $AWS_DEFAULT_REGION | \
         docker login --username AWS --password-stdin $ECR_URI
 
     # Build and tag image
@@ -108,33 +130,39 @@ deploy_infrastructure() {
 deploy_frontend() {
     print_status "Building and deploying frontend..."
 
-    # Get outputs from CDK
+        # Get outputs from CDK using bonsai profile
     WEBSITE_BUCKET=$(aws cloudformation describe-stacks \
+        --profile bonsai \
         --stack-name TeslaFleetTelemetryFrontend \
         --query 'Stacks[0].Outputs[?OutputKey==`WebsiteBucketName`].OutputValue' \
         --output text)
 
     CLOUDFRONT_DISTRIBUTION_ID=$(aws cloudformation describe-stacks \
+        --profile bonsai \
         --stack-name TeslaFleetTelemetryFrontend \
         --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionId`].OutputValue' \
         --output text)
 
     API_URL=$(aws cloudformation describe-stacks \
+        --profile bonsai \
         --stack-name TeslaFleetTelemetryApi \
         --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' \
         --output text)
 
     USER_POOL_ID=$(aws cloudformation describe-stacks \
+        --profile bonsai \
         --stack-name TeslaFleetTelemetryAuth \
         --query 'Stacks[0].Outputs[?OutputKey==`UserPoolId`].OutputValue' \
         --output text)
 
     USER_POOL_CLIENT_ID=$(aws cloudformation describe-stacks \
+        --profile bonsai \
         --stack-name TeslaFleetTelemetryAuth \
         --query 'Stacks[0].Outputs[?OutputKey==`UserPoolClientId`].OutputValue' \
         --output text)
 
     COGNITO_DOMAIN=$(aws cloudformation describe-stacks \
+        --profile bonsai \
         --stack-name TeslaFleetTelemetryAuth \
         --query 'Stacks[0].Outputs[?OutputKey==`UserPoolDomain`].OutputValue' \
         --output text)
@@ -145,7 +173,7 @@ deploy_frontend() {
 VITE_AWS_REGION=$AWS_DEFAULT_REGION
 VITE_COGNITO_USER_POOL_ID=$USER_POOL_ID
 VITE_COGNITO_CLIENT_ID=$USER_POOL_CLIENT_ID
-VITE_COGNITO_DOMAIN=$COGNITO_DOMAIN.auth.$AWS_DEFAULT_REGION.amazoncognito.com
+VITE_COGNITO_DOMAIN=$COGNITO_DOMAIN_PREFIX.auth.$AWS_DEFAULT_REGION.amazoncognito.com
 VITE_API_URL=$API_URL
 VITE_MAP_STYLE_URL=https://maps.geo.$AWS_DEFAULT_REGION.amazonaws.com/maps/v0/maps/ExampleMap/style-descriptor
 EOF
@@ -154,11 +182,12 @@ EOF
     npm ci
     npm run build
 
-    # Deploy to S3
-    aws s3 sync dist/ s3://$WEBSITE_BUCKET --delete
+        # Deploy to S3 using bonsai profile
+    aws s3 sync dist/ s3://$WEBSITE_BUCKET --delete --profile bonsai
 
-    # Invalidate CloudFront cache
+    # Invalidate CloudFront cache using bonsai profile
     aws cloudfront create-invalidation \
+        --profile bonsai \
         --distribution-id $CLOUDFRONT_DISTRIBUTION_ID \
         --paths "/*"
 
@@ -174,18 +203,21 @@ show_deployment_info() {
     echo "=== Deployment Information ==="
     echo
 
-    # Get outputs
+        # Get outputs using bonsai profile
     WEBSITE_URL=$(aws cloudformation describe-stacks \
+        --profile bonsai \
         --stack-name TeslaFleetTelemetryFrontend \
         --query 'Stacks[0].Outputs[?OutputKey==`WebsiteUrl`].OutputValue' \
         --output text)
 
     API_URL=$(aws cloudformation describe-stacks \
+        --profile bonsai \
         --stack-name TeslaFleetTelemetryApi \
         --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' \
         --output text)
 
     TELEMETRY_SERVICE_URL=$(aws cloudformation describe-stacks \
+        --profile bonsai \
         --stack-name TeslaFleetTelemetryApi \
         --query 'Stacks[0].Outputs[?OutputKey==`TelemetryServiceUrl`].OutputValue' \
         --output text)

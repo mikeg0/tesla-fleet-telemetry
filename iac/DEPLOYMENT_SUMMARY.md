@@ -25,6 +25,7 @@ iac/
 ├── .github/workflows/
 │   └── deploy.yml                        # GitHub Actions CI/CD
 ├── deploy.sh                             # Automated deployment script
+├── verify-profile.sh                     # AWS profile verification script
 ├── buildspec.yml                         # AWS CodeBuild configuration
 ├── package.json                          # CDK dependencies
 ├── tsconfig.json                         # TypeScript configuration
@@ -76,8 +77,11 @@ export TESLA_CLIENT_ID="your_client_id"
 export TESLA_CLIENT_SECRET="your_client_secret"
 export DOMAIN_NAME="your-domain.com"
 
-# Deploy everything
+# Verify bonsai profile is configured
 cd iac
+./verify-profile.sh
+
+# Deploy everything (automatically uses bonsai profile)
 ./deploy.sh
 ```
 
@@ -95,8 +99,8 @@ cd iac
 ```bash
 cd iac
 npm install
-cdk bootstrap
-cdk deploy --all
+cdk bootstrap --profile bonsai
+cdk deploy --all --profile bonsai
 ```
 
 ## 🔧 Configuration
@@ -105,6 +109,20 @@ cdk deploy --all
 - `TESLA_CLIENT_ID`: Your Tesla OAuth application client ID
 - `TESLA_CLIENT_SECRET`: Your Tesla OAuth application secret
 - `DOMAIN_NAME`: Custom domain (optional, uses default if not set)
+
+### AWS Profile Configuration
+The deployment automatically uses the `bonsai` AWS profile. Ensure it's configured:
+
+```bash
+# Check if bonsai profile exists
+aws configure list-profiles
+
+# Verify profile credentials
+aws sts get-caller-identity --profile bonsai
+
+# If not configured, set it up
+aws configure --profile bonsai
+```
 
 ### Tesla OAuth Setup
 After deployment, configure your Tesla Developer Application:
@@ -158,23 +176,23 @@ docker build -t tesla-fleet-telemetry:latest ..
 docker tag tesla-fleet-telemetry:latest $ECR_URI:latest
 docker push $ECR_URI:latest
 
-# Update ECS service
-aws ecs update-service --cluster tesla-fleet-telemetry --service tesla-fleet-telemetry --force-new-deployment
+# Update ECS service using bonsai profile
+aws ecs update-service --profile bonsai --cluster tesla-fleet-telemetry --service tesla-fleet-telemetry --force-new-deployment
 ```
 
 ### Frontend Updates
 ```bash
 cd frontend
 npm run build
-aws s3 sync dist/ s3://$WEBSITE_BUCKET --delete
-aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*"
+aws s3 sync dist/ s3://$WEBSITE_BUCKET --delete --profile bonsai
+aws cloudfront create-invalidation --profile bonsai --distribution-id $DISTRIBUTION_ID --paths "/*"
 ```
 
 ### Infrastructure Updates
 ```bash
 cd iac
 npm run build
-cdk deploy --all
+cdk deploy --all --profile bonsai
 ```
 
 ## 🚨 Troubleshooting
@@ -204,18 +222,18 @@ cdk deploy --all
 
 ### Useful Commands
 ```bash
-# View stack outputs
-cdk list
-cdk outputs
+# View stack outputs using bonsai profile
+cdk list --profile bonsai
+cdk outputs --profile bonsai
 
-# Destroy all stacks
-cdk destroy --all
+# Destroy all stacks using bonsai profile
+cdk destroy --all --profile bonsai
 
-# Check ECS service status
-aws ecs describe-services --cluster tesla-fleet-telemetry --services tesla-fleet-telemetry
+# Check ECS service status using bonsai profile
+aws ecs describe-services --profile bonsai --cluster tesla-fleet-telemetry --services tesla-fleet-telemetry
 
-# View CloudFormation events
-aws cloudformation describe-stack-events --stack-name TeslaFleetTelemetryAuth
+# View CloudFormation events using bonsai profile
+aws cloudformation describe-stack-events --profile bonsai --stack-name TeslaFleetTelemetryAuth
 ```
 
 ## 🎯 Next Steps

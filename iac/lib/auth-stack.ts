@@ -5,6 +5,7 @@ import { Construct } from 'constructs';
 
 export interface AuthStackProps extends cdk.StackProps {
   domainName: string;
+  domainPrefix: string;
   teslaClientId: string;
   teslaClientSecret: string;
 }
@@ -99,7 +100,7 @@ export class AuthStack extends cdk.Stack {
     const userPoolDomain = new cognito.UserPoolDomain(this, 'TeslaFleetDomain', {
       userPool: this.userPool,
       cognitoDomain: {
-        domainPrefix: 'tesla-fleet-auth',
+        domainPrefix: props.domainPrefix,
       },
     });
 

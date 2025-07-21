@@ -18,6 +18,7 @@ const env = {
 // Stack configuration
 const projectName = 'TeslaFleetTelemetry';
 const domainName = process.env.DOMAIN_NAME || 'tesla-fleet.example.com';
+const domainPrefix = process.env.COGNITO_DOMAIN_PREFIX || 'track-my-tessie';
 const teslaClientId = process.env.TESLA_CLIENT_ID || '';
 const teslaClientSecret = process.env.TESLA_CLIENT_SECRET || '';
 
@@ -30,6 +31,7 @@ if (!teslaClientId || !teslaClientSecret) {
 const authStack = new AuthStack(app, `${projectName}Auth`, {
   env,
   domainName,
+  domainPrefix,
   teslaClientId,
   teslaClientSecret,
   description: 'Tesla Fleet Telemetry - Authentication Stack',

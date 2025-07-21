@@ -31,7 +31,20 @@ export DOMAIN_NAME="your-domain.com"  # Optional
 export AWS_DEFAULT_REGION="us-east-1"
 ```
 
-### 2. Deploy Everything
+### 2. Verify AWS Profile
+
+The deployment script automatically uses the `bonsai` profile. Verify it's configured:
+
+```bash
+# Quick verification (recommended)
+./verify-profile.sh
+
+# Manual verification
+aws configure list-profiles
+aws sts get-caller-identity --profile bonsai
+```
+
+### 3. Deploy Everything
 
 ```bash
 cd iac
@@ -59,26 +72,29 @@ npm install
 ### 2. Bootstrap CDK (First Time Only)
 
 ```bash
-cdk bootstrap
+# Bootstrap using the bonsai profile
+cdk bootstrap --profile bonsai
 ```
 
 ### 3. Deploy Infrastructure
 
 ```bash
-cdk deploy --all
+# Deploy using the bonsai profile
+cdk deploy --all --profile bonsai
 ```
 
 ### 4. Build and Push Docker Image
 
 ```bash
-# Get ECR repository URI
+# Get ECR repository URI using bonsai profile
 ECR_URI=$(aws cloudformation describe-stacks \
+  --profile bonsai \
   --stack-name TeslaFleetTelemetryApi \
   --query 'Stacks[0].Outputs[?OutputKey==`EcrRepositoryUri`].OutputValue' \
   --output text)
 
-# Login to ECR
-aws ecr get-login-password --region $AWS_DEFAULT_REGION | \
+# Login to ECR using bonsai profile
+aws ecr get-login-password --profile bonsai --region $AWS_DEFAULT_REGION | \
   docker login --username AWS --password-stdin $ECR_URI
 
 # Build and push
@@ -90,23 +106,27 @@ docker push $ECR_URI:latest
 ### 5. Deploy Frontend
 
 ```bash
-# Get required values from CDK outputs
+# Get required values from CDK outputs using bonsai profile
 WEBSITE_BUCKET=$(aws cloudformation describe-stacks \
+  --profile bonsai \
   --stack-name TeslaFleetTelemetryFrontend \
   --query 'Stacks[0].Outputs[?OutputKey==`WebsiteBucketName`].OutputValue' \
   --output text)
 
 API_URL=$(aws cloudformation describe-stacks \
+  --profile bonsai \
   --stack-name TeslaFleetTelemetryApi \
   --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' \
   --output text)
 
 USER_POOL_ID=$(aws cloudformation describe-stacks \
+  --profile bonsai \
   --stack-name TeslaFleetTelemetryAuth \
   --query 'Stacks[0].Outputs[?OutputKey==`UserPoolId`].OutputValue' \
   --output text)
 
 USER_POOL_CLIENT_ID=$(aws cloudformation describe-stacks \
+  --profile bonsai \
   --stack-name TeslaFleetTelemetryAuth \
   --query 'Stacks[0].Outputs[?OutputKey==`UserPoolClientId`].OutputValue' \
   --output text)
@@ -117,15 +137,15 @@ cat > .env << EOF
 VITE_AWS_REGION=$AWS_DEFAULT_REGION
 VITE_COGNITO_USER_POOL_ID=$USER_POOL_ID
 VITE_COGNITO_CLIENT_ID=$USER_POOL_CLIENT_ID
-VITE_COGNITO_DOMAIN=tesla-fleet-auth.auth.$AWS_DEFAULT_REGION.amazoncognito.com
+VITE_COGNITO_DOMAIN=track-my-tessie.auth.$AWS_DEFAULT_REGION.amazoncognito.com
 VITE_API_URL=$API_URL
 VITE_MAP_STYLE_URL=https://maps.geo.$AWS_DEFAULT_REGION.amazonaws.com/maps/v0/maps/ExampleMap/style-descriptor
 EOF
 
-# Build and deploy
+# Build and deploy using bonsai profile
 npm ci
 npm run build
-aws s3 sync dist/ s3://$WEBSITE_BUCKET --delete
+aws s3 sync dist/ s3://$WEBSITE_BUCKET --delete --profile bonsai
 ```
 
 ## Stack Details
@@ -231,7 +251,7 @@ After deployment, configure your Tesla Developer Application:
 
 3. **ECR Login Fails**
    ```bash
-   aws ecr get-login-password --region $AWS_DEFAULT_REGION | \
+   aws ecr get-login-password --profile bonsai --region $AWS_DEFAULT_REGION | \
      docker login --username AWS --password-stdin $ECR_URI
    ```
 
@@ -243,18 +263,18 @@ After deployment, configure your Tesla Developer Application:
 ### Useful Commands
 
 ```bash
-# View stack outputs
-cdk list
-cdk outputs
+# View stack outputs using bonsai profile
+cdk list --profile bonsai
+cdk outputs --profile bonsai
 
-# Destroy all stacks
-cdk destroy --all
+# Destroy all stacks using bonsai profile
+cdk destroy --all --profile bonsai
 
-# View CloudFormation events
-aws cloudformation describe-stack-events --stack-name TeslaFleetTelemetryAuth
+# View CloudFormation events using bonsai profile
+aws cloudformation describe-stack-events --profile bonsai --stack-name TeslaFleetTelemetryAuth
 
-# Check ECS service status
-aws ecs describe-services --cluster tesla-fleet-telemetry --services tesla-fleet-telemetry
+# Check ECS service status using bonsai profile
+aws ecs describe-services --profile bonsai --cluster tesla-fleet-telemetry --services tesla-fleet-telemetry
 ```
 
 ## Updates and Maintenance
@@ -270,24 +290,24 @@ aws ecs describe-services --cluster tesla-fleet-telemetry --services tesla-fleet
 
 2. **Update ECS Service**:
    ```bash
-   aws ecs update-service --cluster tesla-fleet-telemetry --service tesla-fleet-telemetry --force-new-deployment
+   aws ecs update-service --profile bonsai --cluster tesla-fleet-telemetry --service tesla-fleet-telemetry --force-new-deployment
    ```
 
 3. **Update Frontend**:
    ```bash
    cd ../frontend
    npm run build
-   aws s3 sync dist/ s3://$WEBSITE_BUCKET --delete
-   aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*"
+   aws s3 sync dist/ s3://$WEBSITE_BUCKET --delete --profile bonsai
+   aws cloudfront create-invalidation --profile bonsai --distribution-id $DISTRIBUTION_ID --paths "/*"
    ```
 
 ### Infrastructure Updates
 
 ```bash
-# Update CDK code and deploy
+# Update CDK code and deploy using bonsai profile
 cd iac
 npm run build
-cdk deploy --all
+cdk deploy --all --profile bonsai
 ```
 
 ## Support

@@ -49,6 +49,7 @@ jobs:
         TESLA_CLIENT_ID: ${{ secrets.TESLA_CLIENT_ID }}
         TESLA_CLIENT_SECRET: ${{ secrets.TESLA_CLIENT_SECRET }}
         DOMAIN_NAME: ${{ secrets.DOMAIN_NAME }}
+        COGNITO_DOMAIN_PREFIX: ${{ secrets.COGNITO_DOMAIN_PREFIX }}
 
     - name: Build and push Docker image
       run: |
@@ -97,7 +98,7 @@ jobs:
         VITE_AWS_REGION=${{ env.AWS_REGION }}
         VITE_COGNITO_USER_POOL_ID=$USER_POOL_ID
         VITE_COGNITO_CLIENT_ID=$USER_POOL_CLIENT_ID
-        VITE_COGNITO_DOMAIN=tesla-fleet-auth.auth.${{ env.AWS_REGION }}.amazoncognito.com
+        VITE_COGNITO_DOMAIN=${{ secrets.COGNITO_DOMAIN_PREFIX || 'track-my-tessie' }}.auth.${{ env.AWS_REGION }}.amazoncognito.com
         VITE_API_URL=$API_URL
         VITE_MAP_STYLE_URL=https://maps.geo.${{ env.AWS_REGION }}.amazonaws.com/maps/v0/maps/ExampleMap/style-descriptor
         EOF
