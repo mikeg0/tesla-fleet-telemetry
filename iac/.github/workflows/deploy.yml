@@ -1,0 +1,136 @@
+name: Deploy Tesla Fleet Telemetry
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: iac/package-lock.json
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Install CDK dependencies
+      working-directory: iac
+      run: npm ci
+
+    - name: Bootstrap CDK (if needed)
+      working-directory: iac
+      run: cdk bootstrap
+
+    - name: Deploy infrastructure
+      working-directory: iac
+      run: |
+        cdk deploy --all --require-approval never
+      env:
+        TESLA_CLIENT_ID: ${{ secrets.TESLA_CLIENT_ID }}
+        TESLA_CLIENT_SECRET: ${{ secrets.TESLA_CLIENT_SECRET }}
+        DOMAIN_NAME: ${{ secrets.DOMAIN_NAME }}
+        COGNITO_DOMAIN_PREFIX: ${{ secrets.COGNITO_DOMAIN_PREFIX }}
+
+    - name: Build and push Docker image
+      run: |
+        # Get ECR repository URI
+        ECR_URI=$(aws cloudformation describe-stacks \
+          --stack-name TeslaFleetTelemetryApi \
+          --query 'Stacks[0].Outputs[?OutputKey==`EcrRepositoryUri`].OutputValue' \
+          --output text)
+
+        # Build and push
+        docker build -t tesla-fleet-telemetry:latest .
+        docker tag tesla-fleet-telemetry:latest $ECR_URI:latest
+        docker push $ECR_URI:latest
+
+        # Tag with commit SHA
+        COMMIT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
+        docker tag tesla-fleet-telemetry:latest $ECR_URI:$COMMIT_SHA
+        docker push $ECR_URI:$COMMIT_SHA
+
+    - name: Deploy frontend
+      working-directory: frontend
+      run: |
+        # Get required values
+        WEBSITE_BUCKET=$(aws cloudformation describe-stacks \
+          --stack-name TeslaFleetTelemetryFrontend \
+          --query 'Stacks[0].Outputs[?OutputKey==`WebsiteBucketName`].OutputValue' \
+          --output text)
+
+        API_URL=$(aws cloudformation describe-stacks \
+          --stack-name TeslaFleetTelemetryApi \
+          --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' \
+          --output text)
+
+        USER_POOL_ID=$(aws cloudformation describe-stacks \
+          --stack-name TeslaFleetTelemetryAuth \
+          --query 'Stacks[0].Outputs[?OutputKey==`UserPoolId`].OutputValue' \
+          --output text)
+
+        USER_POOL_CLIENT_ID=$(aws cloudformation describe-stacks \
+          --stack-name TeslaFleetTelemetryAuth \
+          --query 'Stacks[0].Outputs[?OutputKey==`UserPoolClientId`].OutputValue' \
+          --output text)
+
+        # Create .env file
+        cat > .env << EOF
+        VITE_AWS_REGION=${{ env.AWS_REGION }}
+        VITE_COGNITO_USER_POOL_ID=$USER_POOL_ID
+        VITE_COGNITO_CLIENT_ID=$USER_POOL_CLIENT_ID
+        VITE_COGNITO_DOMAIN=${{ secrets.COGNITO_DOMAIN_PREFIX || 'track-my-tessie' }}.auth.${{ env.AWS_REGION }}.amazoncognito.com
+        VITE_API_URL=$API_URL
+        VITE_MAP_STYLE_URL=https://maps.geo.${{ env.AWS_REGION }}.amazonaws.com/maps/v0/maps/ExampleMap/style-descriptor
+        EOF
+
+        # Build and deploy
+        npm ci
+        npm run build
+        aws s3 sync dist/ s3://$WEBSITE_BUCKET --delete
+
+        # Invalidate CloudFront
+        CLOUDFRONT_ID=$(aws cloudformation describe-stacks \
+          --stack-name TeslaFleetTelemetryFrontend \
+          --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionId`].OutputValue' \
+          --output text)
+
+        aws cloudfront create-invalidation \
+          --distribution-id $CLOUDFRONT_ID \
+          --paths "/*"
+
+    - name: Display deployment info
+      run: |
+        echo "=== Deployment Information ==="
+        WEBSITE_URL=$(aws cloudformation describe-stacks \
+          --stack-name TeslaFleetTelemetryFrontend \
+          --query 'Stacks[0].Outputs[?OutputKey==`WebsiteUrl`].OutputValue' \
+          --output text)
+
+        API_URL=$(aws cloudformation describe-stacks \
+          --stack-name TeslaFleetTelemetryApi \
+          --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' \
+          --output text)
+
+        echo "Frontend URL: $WEBSITE_URL"
+        echo "API Gateway URL: $API_URL"
+        echo "Deployment completed successfully!"
